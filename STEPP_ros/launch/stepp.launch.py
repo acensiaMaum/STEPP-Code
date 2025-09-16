@@ -28,7 +28,7 @@ def generate_launch_description():
         DeclareLaunchArgument('decay_time', default_value='8.0'),
 
         Node(
-            package='STEPP_ros',
+            package='stepp_ros',
             executable='inference_node.py',
             name='inference_node',
             output='screen',
@@ -44,7 +44,7 @@ def generate_launch_description():
         ),
 
         Node(
-            package='STEPP_ros',
+            package='stepp_ros',
             executable='depth_projection_synchronized',
             name='depth_projection',
             output='screen',

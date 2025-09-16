@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(STEPP_ros)
+project(stepp_ros)
 
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)

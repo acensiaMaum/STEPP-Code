@@ -42,7 +42,7 @@ source ../install/setup.bash
 ### Run (ROS2)
 
 ```bash
-ros2 launch STEPP_ros stepp.launch.py \
+ros2 launch stepp_ros stepp.launch.py \
   model_path:=/abs/path/to/checkpoint.pth \
   rgb_topic:=/camera/color/image_raw/compressed \
   depth_topic:=/camera/aligned_depth_to_color/image_raw \

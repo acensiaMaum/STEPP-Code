@@ -1,5 +1,5 @@
 <package format="3">
-  <name>STEPP_ros</name>
+  <name>stepp_ros</name>
   <version>0.0.1</version>
   <description>Traversability estimation package using image features</description>
 
