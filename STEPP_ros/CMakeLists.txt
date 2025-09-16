@@ -1,55 +1,55 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.5)
 project(STEPP_ros)
 
-find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  geometry_msgs
-  octomap_ros
-  octomap_msgs
-  pcl_conversions
-  pcl_ros
-  rospy
-  sensor_msgs
-  std_msgs
-  cv_bridge
-  grid_map_ros
-  image_transport
-  message_generation
-)
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 
-add_message_files(
-  FILES
-  Float32Stamped.msg
-)
-
-generate_messages(
-  DEPENDENCIES
-  std_msgs
-)
-
-
+find_package(rclcpp REQUIRED)
+find_package(rclpy REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(image_transport REQUIRED)
+find_package(pcl_conversions REQUIRED)
+find_package(pcl_ros REQUIRED)
 find_package(PCL REQUIRED)
-find_package(OpenMP REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(message_filters REQUIRED)
 
-catkin_package(
-  CATKIN_DEPENDS roscpp rospy sensor_msgs std_msgs nav_msgs cv_bridge message_runtime
+# ROS 2 message generation
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/Float32Stamped.msg"
+  DEPENDENCIES std_msgs
 )
 
-include_directories(
-  ${catkin_INCLUDE_DIRS}
-  ${PCL_INCLUDE_DIRS}
+# C++ executable
+add_executable(depth_projection_synchronized src/depth_projection_synchronized.cpp)
+ament_target_dependencies(depth_projection_synchronized
+  rclcpp sensor_msgs nav_msgs std_msgs cv_bridge pcl_conversions tf2 tf2_ros tf2_geometry_msgs message_filters
+)
+target_include_directories(depth_projection_synchronized PUBLIC ${PCL_INCLUDE_DIRS})
+target_link_libraries(depth_projection_synchronized ${PCL_LIBRARIES} ${OpenCV_LIBS})
+
+# Ensure messages are built before the node that uses them
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
+add_dependencies(depth_projection_synchronized ${cpp_typesupport_target})
+
+install(TARGETS depth_projection_synchronized
+  DESTINATION lib/${PROJECT_NAME}
 )
 
-link_directories(${PCL_LIBRARY_DIRS})
-add_definitions(${PCL_DEFINITIONS})
-
-# Add your C++ source files here
-add_executable(depth_projection_synchronized src/depth_projection_synchronized.cpp) # src/utils.cpp)
-target_link_libraries(depth_projection_synchronized ${catkin_LIBRARIES} ${PCL_LIBRARIES})
-add_dependencies(depth_projection_synchronized ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-# Make the Python script executable
-catkin_install_python(PROGRAMS scripts/inference_node.py
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+# Install Python script as an executable
+install(PROGRAMS scripts/inference_node.py
+  DESTINATION lib/${PROJECT_NAME}
 )
+
+install(DIRECTORY launch/
+  DESTINATION share/${PROJECT_NAME}/launch
+)
+
+ament_export_dependencies(rosidl_default_runtime)
+ament_package()

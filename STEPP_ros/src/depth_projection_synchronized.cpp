@@ -1,10 +1,12 @@
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <string>
-#include <std_msgs/Float32MultiArray.h>
-#include <sensor_msgs/Image.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <sensor_msgs/image_encodings.h>
-#include <nav_msgs/Odometry.h>
+#include <std_msgs/msg/float32_multi_array.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/image_encodings.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <geometry_msgs/msg/point.hpp>
+#include <geometry_msgs/msg/quaternion.hpp>
 #include <pcl_ros/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
@@ -13,12 +15,14 @@
 #include <pcl/common/transforms.h>
 #include <Eigen/Dense>
 #include <pcl/common/eigen.h>
-#include <tf/transform_datatypes.h>
+#include <tf2/LinearMath/Transform.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.h>
 #include <pcl/filters/voxel_grid.h>
 #include <message_filters/subscriber.h>
-#include <message_filters/time_synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
-#include <STEPP_ros/Float32Stamped.h>
+#include <message_filters/synchronizer.h>
+#include "STEPP_ros/msg/float32_stamped.hpp"
 
 using namespace std;
 
@@ -49,7 +53,7 @@ int rows = 1, cols = 1;
 int row_stride = 1, col_stride = 1;
 
 Eigen::Matrix4f cameraToMapTransform;
-ros::Publisher cloudPub;
+rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr cloudPub;
 
 pcl::VoxelGrid<pcl::PointXYZINormal> downSizeFilter;
 
@@ -61,9 +65,9 @@ struct CameraIntrinsics {
 };
 
 CameraIntrinsics intrinsics;
-tf::Transform odomTransform;
-std_msgs::Float32MultiArray loss;
-STEPP_ros::Float32Stamped losStamped;
+tf2::Transform odomTransform;
+std_msgs::msg::Float32MultiArray loss;
+STEPP_ros::msg::Float32Stamped losStamped;
 
 pcl::PointCloud<pcl::PointXYZINormal>::Ptr 
     cloud(new pcl::PointCloud<pcl::PointXYZINormal>);
@@ -80,8 +84,8 @@ pcl::PointCloud<pcl::PointXYZINormal>::Ptr
 pcl::PointCloud<pcl::PointXYZI>::Ptr
     pubCloud(new pcl::PointCloud<pcl::PointXYZI>);
 
-void setCameraIntrinsics(const std::string& cameraType) {
-    ROS_INFO("Setting camera intrinsics for %s camera", cameraType.c_str());
+void setCameraIntrinsics(const std::string& cameraType, rclcpp::Logger logger) {
+    RCLCPP_INFO(logger, "Setting camera intrinsics for %s camera", cameraType.c_str());
     if (cameraType == "D455") {
         intrinsics = {634.3491821289062, 632.8595581054688, 631.8179931640625, 375.0325622558594};
         height = 720;
@@ -95,8 +99,8 @@ void setCameraIntrinsics(const std::string& cameraType) {
         height = 360;
         width = 640-2*azimuth_buff;
     } else {
-        ROS_ERROR("Invalid camera type specified. Please choose from 'D455', 'zed2', or 'cmu_sim'.");
-        ros::shutdown();
+        RCLCPP_ERROR(logger, "Invalid camera type specified. Please choose from 'D455', 'zed2', or 'cmu_sim'.");
+        rclcpp::shutdown();
     }
 
     fovy = 2 * atan(height / (2 * intrinsics.fy));
@@ -112,9 +116,9 @@ pcl::PointXYZ convertTo3DPoint(int u, int v, float depth, const CameraIntrinsics
     return point;
 }
 
-void callback(const sensor_msgs::Image::ConstPtr& depthMsg,
-              const nav_msgs::Odometry::ConstPtr&  odomMsg,
-              const STEPP_ros::Float32StampedConstPtr& customMsg) {
+void callback(const sensor_msgs::msg::Image::ConstSharedPtr depthMsg,
+              const nav_msgs::msg::Odometry::ConstSharedPtr  odomMsg,
+              const STEPP_ros::msg::Float32Stamped::ConstSharedPtr customMsg) {
     
     // if (loss.data.empty()) {  // Check if the loss data is not initialized
     //     ROS_WARN("Loss data not available yet.");
@@ -131,9 +135,9 @@ void callback(const sensor_msgs::Image::ConstPtr& depthMsg,
 
     // Extract the position and orientation from the odometry message
     double roll, pitch, yaw;
-    geometry_msgs::Point position = odomMsg->pose.pose.position;
-    geometry_msgs::Quaternion orientation = odomMsg->pose.pose.orientation;
-    tf::Matrix3x3(tf::Quaternion(orientation.x, orientation.y, orientation.z, orientation.w))
+    geometry_msgs::msg::Point position = odomMsg->pose.pose.position;
+    geometry_msgs::msg::Quaternion orientation = odomMsg->pose.pose.orientation;
+    tf2::Matrix3x3(tf2::Quaternion(orientation.x, orientation.y, orientation.z, orientation.w))
       .getRPY(roll, pitch, yaw);
 
     vehicleX = odomMsg->pose.pose.position.x;
@@ -157,16 +161,16 @@ void callback(const sensor_msgs::Image::ConstPtr& depthMsg,
     cosVehicleYaw = cos(vehicleYaw);
 
     // Convert the position and orientation into a transform
-    tf::Transform transform;
-    transform.setOrigin(tf::Vector3(position.x, position.y, position.z));
-    tf::Quaternion quat(orientation.x, orientation.y, orientation.z, orientation.w);
+    tf2::Transform transform;
+    transform.setOrigin(tf2::Vector3(position.x, position.y, position.z));
+    tf2::Quaternion quat(orientation.x, orientation.y, orientation.z, orientation.w);
     transform.setRotation(quat);
 
     // Store the transformation to be used when processing the point cloud
     odomTransform = transform;
 
     // Extract the depth image from the depth message
-    depthCloudTime = depthMsg->header.stamp.toSec();
+    depthCloudTime = rclcpp::Time(depthMsg->header.stamp).seconds();
 
     if (!systemInited) {
         systemInitTime = depthCloudTime;
@@ -178,13 +182,13 @@ void callback(const sensor_msgs::Image::ConstPtr& depthMsg,
     try {
         cv_ptr = cv_bridge::toCvShare(depthMsg, depthMsg->encoding);
     } catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception: %s", e.what());
+        RCLCPP_ERROR(rclcpp::get_logger("depth_projection"), "cv_bridge exception: %s", e.what());
         return;
     }
 
     if (depthMsg->encoding == sensor_msgs::image_encodings::TYPE_32FC1) {
-        for (int v = 0; v < depthMsg->height; ++v) {
-            for (int u = azimuth_buff; u < depthMsg->width-azimuth_buff; ++u) {
+        for (int v = 0; v < static_cast<int>(depthMsg->height); ++v) {
+            for (int u = static_cast<int>(azimuth_buff); u < static_cast<int>(depthMsg->width-azimuth_buff); ++u) {
                 float depth = cv_ptr->image.at<float>(v, u); // Access the depth value as float (meters)
                 if (depth > 0) {  // Check for valid depth
                     pcl::PointXYZ point = convertTo3DPoint(u, v, depth, intrinsics);
@@ -199,8 +203,8 @@ void callback(const sensor_msgs::Image::ConstPtr& depthMsg,
             }
         }
     } else if (depthMsg->encoding == sensor_msgs::image_encodings::TYPE_16UC1) {
-        for (int v = 0; v < depthMsg->height; ++v) {
-            for (int u = azimuth_buff; u < depthMsg->width-azimuth_buff; ++u) {
+        for (int v = 0; v < static_cast<int>(depthMsg->height); ++v) {
+            for (int u = static_cast<int>(azimuth_buff); u < static_cast<int>(depthMsg->width-azimuth_buff); ++u) {
                 uint16_t depth_mm = cv_ptr->image.at<uint16_t>(v, u); // Access the depth value as uint16_t
                 float depth = depth_mm * 0.001f; // Convert millimeters to meters
                 if (depth != 0) {  // Check for valid depth
@@ -216,7 +220,7 @@ void callback(const sensor_msgs::Image::ConstPtr& depthMsg,
             }
         }
     } else {
-        ROS_ERROR("Unsupported depth encoding: %s", depthMsg->encoding.c_str());
+        RCLCPP_ERROR(rclcpp::get_logger("depth_projection"), "Unsupported depth encoding: %s", depthMsg->encoding.c_str());
         return;
     }
     newDepthCloud = true;
@@ -224,48 +228,40 @@ void callback(const sensor_msgs::Image::ConstPtr& depthMsg,
 }
 
 int main(int argc, char** argv) {
-    ros::init(argc, argv, "depth_projection");
-    ros::NodeHandle nh;
+    rclcpp::init(argc, argv);
+    auto node = rclcpp::Node::make_shared("depth_projection");
 
     std::string cameraType;
-    nh.getParam("/depth_projection/camera_type", cameraType);
-    nh.getParam("/depth_projection/decayTime", decayTime);
-    setCameraIntrinsics(cameraType);
+    node->declare_parameter<std::string>("camera_type", "zed2");
+    node->declare_parameter<double>("decayTime", 8.0);
+    node->get_parameter("camera_type", cameraType);
+    node->get_parameter("decayTime", decayTime);
+    setCameraIntrinsics(cameraType, node->get_logger());
 
     // Set up subscribers using message_filters
-    message_filters::Subscriber<sensor_msgs::Image> depthSub(nh, "/camera/aligned_depth_to_color/image_raw", 1);
-    message_filters::Subscriber<nav_msgs::Odometry> odomSub(nh, "/state_estimation", 1);
-    message_filters::Subscriber<STEPP_ros::Float32Stamped> customMsgSub(nh, "/inference/results_stamped_post", 1);
+    message_filters::Subscriber<sensor_msgs::msg::Image> depthSub(node, "/camera/aligned_depth_to_color/image_raw");
+    message_filters::Subscriber<nav_msgs::msg::Odometry> odomSub(node, "/state_estimation");
+    message_filters::Subscriber<STEPP_ros::msg::Float32Stamped> customMsgSub(node, "/inference/results_stamped_post");
 
-    // Create ApproximateTime policy
-    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, nav_msgs::Odometry, STEPP_ros::Float32Stamped> MySyncPolicy;
+    using MySyncPolicy = message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, nav_msgs::msg::Odometry, STEPP_ros::msg::Float32Stamped>;
     message_filters::Synchronizer<MySyncPolicy> sync(MySyncPolicy(10), depthSub, odomSub, customMsgSub);
-    sync.setInterMessageLowerBound(ros::Duration(1.5)); // Adjust time tolerance
-    sync.registerCallback(boost::bind(&callback, _1, _2, _3));
-
-    // ros::Subscriber lossSub = nh.subscribe("/inference/results", 10, lossCallback);
-
-    // cameraToMapTransform <<   0.0, 0.0, 1.0, 0.0, // CMU_SIM transform
-    //                          -1.0, 0.0, 0.0, 0.0,
-    //                           0.0,-1.0, 0.0, 0.0,
-    //                           0.0, 0.0, 0.0, 1.0;
+    sync.registerCallback(&callback);
 
     cameraToMapTransform <<  0.01165962, -0.02415892,  0.99964014,  0.482,
                             -0.99953617,  0.02784553,  0.01233136,  0.04,
                             -0.02813342, -0.99932026, -0.02382304,  0.249,
                              0.0,         0.0,         0.0,         1.0;
     
-    cloudPub = nh.advertise<sensor_msgs::PointCloud2>("/depth_projection", 10);
+    cloudPub = node->create_publisher<sensor_msgs::msg::PointCloud2>("/depth_projection", 10);
 
     downSizeFilter.setLeafSize(voxel_size_, voxel_size_, voxel_size_);
 
-    //print out the camera intrinsics
-    ROS_INFO("Camera intrinsics: fx = %f, fy = %f, cx = %f, cy = %f", intrinsics.fx, intrinsics.fy, intrinsics.cx, intrinsics.cy);
+    RCLCPP_INFO(node->get_logger(), "Camera intrinsics: fx = %f, fy = %f, cx = %f, cy = %f", intrinsics.fx, intrinsics.fy, intrinsics.cx, intrinsics.cy);
 
-    ros::Rate rate(200);
-    bool status = ros::ok();
+    rclcpp::Rate rate(200);
+    bool status = rclcpp::ok();
     while (status) {
-        ros::spinOnce();
+        rclcpp::spin_some(node);
         if (newDepthCloud) {
             newDepthCloud = false;
 
@@ -324,8 +320,8 @@ int main(int argc, char** argv) {
             int transformedCloudSize = transformedCloud->points.size();
             for (int i =0; i < transformedCloudSize; i++) {
                 pcl::PointXYZINormal point = transformedCloud->points[i];
-                tf::Vector3 p(point.x, point.y, point.z);
-                tf::Vector3 pTransformed = odomTransform * p;
+                tf2::Vector3 p(point.x, point.y, point.z);
+                tf2::Vector3 pTransformed = odomTransform * p;
                 pcl::PointXYZINormal newPoint;
                 newPoint.x = pTransformed.x();
                 newPoint.y = pTransformed.y();      
@@ -355,16 +351,17 @@ int main(int argc, char** argv) {
             }
 
             // Publish the terrain cloud
-            sensor_msgs::PointCloud2 terrainCloud2;
+            sensor_msgs::msg::PointCloud2 terrainCloud2;
             pcl::toROSMsg(*pubCloud, terrainCloud2);
             terrainCloud2.header.frame_id = "odom";
-            terrainCloud2.header.stamp = ros::Time().fromSec(depthCloudTime);
-            cloudPub.publish(terrainCloud2);
+            terrainCloud2.header.stamp = rclcpp::Time(depthCloudTime * 1e9);
+            cloudPub->publish(terrainCloud2);
         }
 
-        status = ros::ok();
+        status = rclcpp::ok();
         rate.sleep();
     }
-    
+
+    rclcpp::shutdown();
     return 0;
 }

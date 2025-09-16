@@ -1,6 +1,7 @@
-#!/Rocket_ssd/miniconda3/envs/STEPP/bin/python3
+#!/usr/bin/env python3
 
-import rospy
+import rclpy
+from rclpy.node import Node
 from sensor_msgs.msg import Image, CompressedImage
 from std_msgs.msg import Float32MultiArray, MultiArrayDimension
 import torch
@@ -22,7 +23,7 @@ from STEPP.DINO.dino_feature_extract import DinoInterface
 from STEPP.DINO.dino_feature_extract import get_dino_features, average_dino_feature_segment, average_dino_feature_segment_tensor
 from STEPP.SLIC.slic_segmentation import SLIC
 from STEPP.model.mlp import ReconstructMLP
-from STEPP_ros.msg import Float32Stamped
+from stepp_ros.msg import Float32Stamped
 
 warnings.filterwarnings("ignore")
 CV_BRIDGE = CvBridge()
@@ -31,16 +32,17 @@ TO_PIL_IMAGE = transforms.ToPILImage()
 
 from pytictac import Timer
 
-class InferenceNode:
+class InferenceNode(Node):
     def __init__(self):
+        super().__init__('inference_node')
         self.image_queue = Queue(maxsize=1)
         self.lock = Lock()
 
         self.processing = False
-        self.image_sub = rospy.Subscriber('/camera/color/image_raw/compressed', CompressedImage, self.image_callback)
-        self.inference_pub = rospy.Publisher('/inference/result', Float32MultiArray, queue_size=200)
-        self.inference_stamped_pub = rospy.Publisher('/inference/results_stamped_post', Float32Stamped, queue_size=200)
-        self.visu_traversability_pub = rospy.Publisher('/inference/visu_traversability_post', Image, queue_size=200)
+        self.image_sub = self.create_subscription(CompressedImage, '/camera/color/image_raw/compressed', self.image_callback, 10)
+        self.inference_pub = self.create_publisher(Float32MultiArray, '/inference/result', 10)
+        self.inference_stamped_pub = self.create_publisher(Float32Stamped, '/inference/results_stamped_post', 10)
+        self.visu_traversability_pub = self.create_publisher(Image, '/inference/visu_traversability_post', 10)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Threshold for traversability
@@ -51,8 +53,10 @@ class InferenceNode:
         self.dino_size = "vit_small"
         self.patch = 14
         self.backbone = "dinov2"
-        self.ump = rospy.get_param('~ump', True)
-        self.cutoff = rospy.get_param('~cutoff', 1.2)
+        self.declare_parameter('ump', True)
+        self.declare_parameter('cutoff', 1.2)
+        self.ump = self.get_parameter('ump').get_parameter_value().bool_value
+        self.cutoff = float(self.get_parameter('cutoff').get_parameter_value().double_value)
         print(self.cutoff)
         print(type(self.cutoff))
 
@@ -75,13 +79,16 @@ class InferenceNode:
         self.model = ReconstructMLP(384, [256, 128, 64, 32, 64, 128, 256])
 
         # Load model weights
-        state_dict = torch.load(rospy.get_param('~model_path'))
+        self.declare_parameter('model_path', '')
+        model_path = self.get_parameter('model_path').get_parameter_value().string_value
+        state_dict = torch.load(model_path)
         self.model.load_state_dict(state_dict)
 
         # Move model to the device
         self.model.to(self.device)
 
-        self.visualize = rospy.get_param('~visualize', False)
+        self.declare_parameter('visualize', False)
+        self.visualize = self.get_parameter('visualize').get_parameter_value().bool_value
 
         self.thread = Thread(target=self.process_images)
         self.thread.start()
@@ -105,7 +112,7 @@ class InferenceNode:
         msg = Float32Stamped()
 
         # Get the current time in nanoseconds
-        msg.header.stamp = rospy.Time.now()
+        msg.header.stamp = self.get_clock().now().to_msg()
 
         msg.data = Float32MultiArray()
         msg.data.data = matrix.flatten().tolist()  # Flatten the matrix and convert to list
@@ -120,7 +127,7 @@ class InferenceNode:
         self.inference_stamped_pub.publish(msg)
 
     def process_images(self):
-        while not rospy.is_shutdown():
+        while rclpy.ok():
         # with Timer("Full loop"):
             image_data = self.image_queue.get()
             if image_data is None:
@@ -258,8 +265,15 @@ class InferenceNode:
                     self.image_queue.put(data)
                     self.processing = True
 
-if __name__ == '__main__':
-    print('Starting inference node')
-    rospy.init_node('inference_node')
+def main():
+    rclpy.init()
     node = InferenceNode()
-    rospy.spin()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
