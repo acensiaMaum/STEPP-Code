@@ -21,17 +21,39 @@ cd
 # We use cuda 12.1 drivers/
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
-Place the repository in your catkin workspace of choice with your planner of choice implementation, we used the CMU Falco local planner from their [autonomous exploration development environment](https://www.cmu-exploration.com/).
+For ROS2, place the repository in a colcon workspace (or see ROS1 guidance below). We used the CMU Falco local planner from their [autonomous exploration development environment](https://www.cmu-exploration.com/).
 
+### ROS2 (Humble/Iron) build
 ```bash
-# Assuming an already setup and built ros workspace (workspace containing cmu-exploration, or any other navigation stack)
-cd your_navigation_ws/src
+# Assuming an already setup ROS2 colcon workspace
+cd your_ros2_ws/src
 git clone git@github.com:RPL-CS-UCL/STEPP-Code.git
-cd STEPP-code
+cd STEPP-Code
+git checkout feat/ROS2
 pip install -e .
-cd ../../..
-catkin build STEPP_ros
+cd ..
+colcon build --packages-select STEPP_ros
+source ../install/setup.bash
 ```
+
+### Run (ROS2)
+```bash
+ros2 launch STEPP_ros stepp.launch.py \
+  model_path:=/abs/path/to/checkpoint.pth \
+  rgb_topic:=/camera/color/image_raw/compressed \
+  depth_topic:=/camera/aligned_depth_to_color/image_raw \
+  odom_topic:=/state_estimation \
+  visualize:=false ump:=false cutoff:=0.45 \
+  camera_type:=zed2 decay_time:=8.0
+```
+
+Parameters (ROS2 launch):
+- "model_path": Path to your checkpoint `.pth`
+- "visualize": If true, publishes colored overlay image
+- "ump": Use mixed precision
+- "cutoff": Max normalized reconstruction error
+- "camera_type": [zed2, D455, cmu_sim]
+- "decay_time": Seconds for decay behavior
 
 
 For installation of Jetpack, Pytorch, and Torchvision on your Jetson Platform: [Link](https://pytorch.org/audio/stable/build.jetson.html) and [Link](https://forums.developer.nvidia.com/t/pytorch-for-jetson/72048)
@@ -59,19 +81,12 @@ The following trained checkpoints are included in the repo:
 | [`unreal_synthetic_data.pth`](https://download.europe.naverlabs.com/ComputerVision/DUSt3R/DUSt3R_ViTLarge_BaseDecoder_512_linear.pth)  |Unreal engine synthetic Data| 700x700 | dinov2_vits14 |big_nn|
 | [`all_data.pth`](\checkpoints\unreal_full_ViT_small_big_nn_checkpoint_20240819-2003.pth)|Richmond Forest, Unreal synthetic Data | 700x700 | dinov2_vits14 |big_nn|
 
-## Usage ##
-to launch the model, set all required paths correctly and build your workspace and run: 
+## Usage (ROS1 legacy)
+Legacy ROS1 launch remains documented below for reference and is replaced by ROS2 launch above.
 ```bash
 roslaunch STEPP_ros STEPP.launch
 ```
-
-### STEPP.launch Arguments
-- "model_path": Path to your chosen checkpoint.pth file 
-- 'visualize': decides if you want to output the overlayed traversability cost onto the image feed (slows inference time)
-- 'ump': option to use mixed precision for model inference. Makes inference time faster but requires retraining of model weights for best performance
-- 'cutoff': sets the value for the maximum normalized reconstruction error
-- "camera_type": [zed2, D455, cmu_sim] - sets the chosen depth projection camera intrinsics
-- "decayTime": (unfinished) how long do you want the depth pointcloud with cost to be remembered outside the decay zone and active camera view.
+STEPP.launch arguments mirror the ROS2 parameters.
 
 ## Train Your Own STEPP inference model ##
 to train your own STEPP traversability estimation model all you need is a dataset consisting of an image folder and an odometry pose folder. Here each SE(3) odometry pose has to relate to the exact location and rotation of the correlating image. With these two you can run the `extract_future_poses.py` script and obtain a json file containing the pixels that represent the cameras future poses in the given image frame. 

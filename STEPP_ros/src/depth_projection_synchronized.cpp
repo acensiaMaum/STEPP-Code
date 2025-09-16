@@ -22,7 +22,7 @@
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
-#include "STEPP_ros/msg/float32_stamped.hpp"
+#include "stepp_ros/msg/float32_stamped.hpp"
 
 using namespace std;
 
@@ -67,7 +67,7 @@ struct CameraIntrinsics {
 CameraIntrinsics intrinsics;
 tf2::Transform odomTransform;
 std_msgs::msg::Float32MultiArray loss;
-STEPP_ros::msg::Float32Stamped losStamped;
+stepp_ros::msg::Float32Stamped losStamped;
 
 pcl::PointCloud<pcl::PointXYZINormal>::Ptr 
     cloud(new pcl::PointCloud<pcl::PointXYZINormal>);
@@ -118,7 +118,7 @@ pcl::PointXYZ convertTo3DPoint(int u, int v, float depth, const CameraIntrinsics
 
 void callback(const sensor_msgs::msg::Image::ConstSharedPtr depthMsg,
               const nav_msgs::msg::Odometry::ConstSharedPtr  odomMsg,
-              const STEPP_ros::msg::Float32Stamped::ConstSharedPtr customMsg) {
+              const stepp_ros::msg::Float32Stamped::ConstSharedPtr customMsg) {
     
     // if (loss.data.empty()) {  // Check if the loss data is not initialized
     //     ROS_WARN("Loss data not available yet.");
@@ -241,9 +241,9 @@ int main(int argc, char** argv) {
     // Set up subscribers using message_filters
     message_filters::Subscriber<sensor_msgs::msg::Image> depthSub(node, "/camera/aligned_depth_to_color/image_raw");
     message_filters::Subscriber<nav_msgs::msg::Odometry> odomSub(node, "/state_estimation");
-    message_filters::Subscriber<STEPP_ros::msg::Float32Stamped> customMsgSub(node, "/inference/results_stamped_post");
+    message_filters::Subscriber<stepp_ros::msg::Float32Stamped> customMsgSub(node, "/inference/results_stamped_post");
 
-    using MySyncPolicy = message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, nav_msgs::msg::Odometry, STEPP_ros::msg::Float32Stamped>;
+    using MySyncPolicy = message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, nav_msgs::msg::Odometry, stepp_ros::msg::Float32Stamped>;
     message_filters::Synchronizer<MySyncPolicy> sync(MySyncPolicy(10), depthSub, odomSub, customMsgSub);
     sync.registerCallback(&callback);
 
