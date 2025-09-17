@@ -34,9 +34,8 @@ ament_target_dependencies(depth_projection_synchronized
 target_include_directories(depth_projection_synchronized PUBLIC ${PCL_INCLUDE_DIRS})
 target_link_libraries(depth_projection_synchronized ${PCL_LIBRARIES} ${OpenCV_LIBS})
 
-# Ensure messages are built before the node that uses them
-rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
-add_dependencies(depth_projection_synchronized ${cpp_typesupport_target})
+# Link the generated message library
+rosidl_target_interfaces(depth_projection_synchronized ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
 install(TARGETS depth_projection_synchronized
   DESTINATION lib/${PROJECT_NAME}

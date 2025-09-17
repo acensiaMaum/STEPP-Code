@@ -7,7 +7,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/quaternion.hpp>
-#include <pcl_ros/point_cloud.h>
+#include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <opencv2/opencv.hpp>
